@@ -21,20 +21,20 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-
+ 
 import type { DrawerProps } from '../../types';
 import DrawerProgressContext from '../../utils/DrawerProgressContext';
 import Overlay from './Overlay';
-
+ 
 const SWIPE_DISTANCE_MINIMUM = 5;
 const DEFAULT_DRAWER_WIDTH = '80%';
-
+ 
 const minmax = (value: number, start: number, end: number) => {
   'worklet';
-
+ 
   return Math.min(Math.max(value, start), end);
 };
-
+ 
 export default function Drawer({
   dimensions,
   drawerPosition,
@@ -58,37 +58,37 @@ export default function Drawer({
   const getDrawerWidth = (): number => {
     const { width = DEFAULT_DRAWER_WIDTH } =
       StyleSheet.flatten(drawerStyle) || {};
-
+ 
     if (typeof width === 'string' && width.endsWith('%')) {
       // Try to calculate width if a percentage is given
       const percentage = Number(width.replace(/%$/, ''));
-
+ 
       if (Number.isFinite(percentage)) {
         return dimensions.width * (percentage / 100);
       }
     }
-
+ 
     return typeof width === 'number' ? width : 0;
   };
-
+ 
   const drawerWidth = getDrawerWidth();
-
+ 
   const isOpen = drawerType === 'permanent' ? true : open;
   const isRight = drawerPosition === 'right';
-
+ 
   const getDrawerTranslationX = React.useCallback(
     (open: boolean) => {
       'worklet';
-
+ 
       if (drawerPosition === 'left') {
         return open ? 0 : -drawerWidth;
       }
-
+ 
       return open ? 0 : drawerWidth;
     },
     [drawerPosition, drawerWidth]
   );
-
+ 
   const hideStatusBar = React.useCallback(
     (hide: boolean) => {
       if (hideStatusBarOnOpen) {
@@ -97,42 +97,42 @@ export default function Drawer({
     },
     [hideStatusBarOnOpen, statusBarAnimation]
   );
-
+ 
   React.useEffect(() => {
     hideStatusBar(isOpen);
-
+ 
     return () => hideStatusBar(false);
   }, [isOpen, hideStatusBarOnOpen, statusBarAnimation, hideStatusBar]);
-
+ 
   const interactionHandleRef = React.useRef<number | null>(null);
-
+ 
   const startInteraction = () => {
     interactionHandleRef.current = InteractionManager.createInteractionHandle();
   };
-
+ 
   const endInteraction = () => {
     if (interactionHandleRef.current != null) {
       InteractionManager.clearInteractionHandle(interactionHandleRef.current);
       interactionHandleRef.current = null;
     }
   };
-
+ 
   const hideKeyboard = () => {
     if (keyboardDismissMode === 'on-drag') {
       Keyboard.dismiss();
     }
   };
-
+ 
   const onGestureStart = () => {
     startInteraction();
     hideKeyboard();
     hideStatusBar(true);
   };
-
+ 
   const onGestureEnd = () => {
     endInteraction();
   };
-
+ 
   // FIXME: Currently hitSlop is broken when on Android when drawer is on right
   // https://github.com/software-mansion/react-native-gesture-handler/issues/569
   const hitSlop = isRight
@@ -140,32 +140,36 @@ export default function Drawer({
       // This lets the user drag the drawer from the side of the screen
       { right: 0, width: isOpen ? undefined : swipeEdgeWidth }
     : { left: 0, width: isOpen ? undefined : swipeEdgeWidth };
-
+ 
   const touchStartX = useSharedValue(0);
   const touchX = useSharedValue(0);
   const translationX = useSharedValue(getDrawerTranslationX(open));
   const gestureState = useSharedValue<GestureState>(GestureState.UNDETERMINED);
-
+ 
   const toggleDrawer = React.useCallback(
-    (open: boolean, velocity?: number) => {
+    (open: boolean, isUserInitiated: boolean, velocity?: number) => {
       'worklet';
-
+ 
       const translateX = getDrawerTranslationX(open);
-
+ 
       touchStartX.value = 0;
       touchX.value = 0;
       translationX.value = withSpring(
         translateX,
         {
           velocity,
-          stiffness: 1000,
-          damping: 500,
-          mass: 3,
+          stiffness: 10000,
+          damping: 0,
+          mass: 100,
           overshootClamping: true,
-          restDisplacementThreshold: 0.01,
-          restSpeedThreshold: 0.01,
+          restDisplacementThreshold: 0,
+          restSpeedThreshold: 0,
         },
         () => {
+          if (!isUserInitiated) {
+            return;
+          }
+ 
           if (translationX.value === getDrawerTranslationX(true)) {
             runOnJS(onOpen)();
           } else if (translationX.value === getDrawerTranslationX(false)) {
@@ -176,9 +180,9 @@ export default function Drawer({
     },
     [getDrawerTranslationX, onClose, onOpen, touchStartX, touchX, translationX]
   );
-
-  React.useEffect(() => toggleDrawer(open), [open, toggleDrawer]);
-
+ 
+  React.useEffect(() => toggleDrawer(open, false), [open, toggleDrawer]);
+ 
   const onGestureEvent = useAnimatedGestureHandler<
     PanGestureHandlerGestureEvent,
     { startX: number }
@@ -187,7 +191,7 @@ export default function Drawer({
       ctx.startX = translationX.value;
       gestureState.value = event.state;
       touchStartX.value = event.x;
-
+ 
       runOnJS(onGestureStart)();
     },
     onActive: (event, ctx) => {
@@ -197,7 +201,7 @@ export default function Drawer({
     },
     onEnd: (event) => {
       gestureState.value = event.state;
-
+ 
       const nextOpen =
         (Math.abs(event.translationX) > SWIPE_DISTANCE_MINIMUM &&
           Math.abs(event.translationX) > swipeVelocityThreshold) ||
@@ -208,12 +212,12 @@ export default function Drawer({
             : // If swiped to left, open the drawer, otherwise close it
               (event.velocityX === 0 ? event.translationX : event.velocityX) < 0
           : open;
-
-      toggleDrawer(nextOpen, event.velocityX);
+ 
+      toggleDrawer(nextOpen, true, event.velocityX);
       runOnJS(onGestureEnd)();
     },
   });
-
+ 
   const translateX = useDerivedValue(() => {
     // Comment stolen from react-native-gesture-handler/DrawerLayout
     //
@@ -250,15 +254,15 @@ export default function Drawer({
             dimensions.width
           )
         : 0;
-
+ 
     const translateX =
       drawerPosition === 'left'
         ? minmax(translationX.value + touchDistance, -drawerWidth, 0)
         : minmax(translationX.value - touchDistance, 0, drawerWidth);
-
+ 
     return translateX;
   });
-
+ 
   const drawerAnimatedStyle = useAnimatedStyle(() => {
     return {
       transform:
@@ -273,7 +277,7 @@ export default function Drawer({
             ],
     };
   });
-
+ 
   const contentAnimatedStyle = useAnimatedStyle(() => {
     return {
       transform:
@@ -293,7 +297,7 @@ export default function Drawer({
             ],
     };
   });
-
+ 
   const progress = useDerivedValue(() => {
     return drawerType === 'permanent'
       ? 1
@@ -303,7 +307,7 @@ export default function Drawer({
           [0, 1]
         );
   });
-
+ 
   return (
     <DrawerProgressContext.Provider value={progress}>
       <PanGestureHandler
@@ -339,7 +343,7 @@ export default function Drawer({
             {drawerType !== 'permanent' ? (
               <Overlay
                 progress={progress}
-                onPress={() => toggleDrawer(false)}
+                onPress={() => toggleDrawer(false, true)}
                 style={overlayStyle}
               />
             ) : null}
@@ -364,7 +368,7 @@ export default function Drawer({
     </DrawerProgressContext.Provider>
   );
 }
-
+ 
 const styles = StyleSheet.create({
   container: {
     top: 0,
@@ -385,3 +389,5 @@ const styles = StyleSheet.create({
     }),
   },
 });
+ 
+
